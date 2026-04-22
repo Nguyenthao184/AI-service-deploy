@@ -8,3 +8,5 @@ venv
 .git
 .gitignore
 README.md
+.history
+*.log

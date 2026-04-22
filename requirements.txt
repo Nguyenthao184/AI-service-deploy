@@ -4,5 +4,6 @@ scikit-learn==1.6.1
 numpy==2.1.3
 pydantic==2.10.3
 python-dateutil==2.9.0.post0
-sentence-transformers==3.4.1
+# Optional (very heavy on Railway build): sentence-transformers
+# sentence-transformers==3.4.1
 

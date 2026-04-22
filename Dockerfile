@@ -15,6 +15,6 @@ COPY . .
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-CMD python -c "import os,requests; requests.get(f'http://localhost:{os.environ.get(\"PORT\",8000)}/docs')" || exit 1
+CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ.get(\"PORT\",8000)}/docs', timeout=5)" || exit 1
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
