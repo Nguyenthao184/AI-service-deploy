@@ -1,0 +1,14 @@
+{
+  "name": "smartdonate",
+  "version": "1.0.0",
+  "description": "Smart Donate Platform",
+  "scripts": {
+    "build": "npm run build --prefix frontend",
+    "start": "cd backend && php artisan serve",
+    "dev": "npm run dev --prefix frontend"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "php": ">=8.2"
+  }
+}
