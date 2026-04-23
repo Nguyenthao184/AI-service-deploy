@@ -119,9 +119,16 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         return []
 
     target_text = core_text.normalize_semantic_text((target.tieu_de + " " + target.mo_ta).strip())
-    allowed_categories = set((target.danh_mucs or []))
+    allowed_categories: Set[str] = set()
     if target.danh_muc:
         allowed_categories.add(target.danh_muc)
+    if target.danh_mucs:
+        allowed_categories.update(target.danh_mucs)
+
+    if not allowed_categories:
+        inferred, _ = core_text.infer_category_label(target_text)
+        if inferred:
+            allowed_categories.add(inferred)
     target_intents = core_text.extract_intents(target_text)
     other_texts = [core_text.normalize_semantic_text((p.tieu_de + " " + p.mo_ta).strip()) for p in others]
     semantic_sims = core_similarity.semantic_similarity_scores(target_text, other_texts)
@@ -147,7 +154,8 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         if allowed_categories
         else core_config.MIN_SIM_LOOSE
     )
-
+    is_emergency = core_text.is_emergency_case(target_text)
+    
     for idx, cand in enumerate(others):
         cand_text = other_texts[idx]
         semantic_sim = float(semantic_sims[idx])
@@ -159,7 +167,10 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             print("TARGET:", target_text)
             print("CAND:", cand_text)
             print("BLEND:", round(match_sim, 6), "SEM:", round(semantic_sim, 6), "LEX:", round(lexical_sim, 6))
-
+        if core_text.should_reject_food_mismatch(target_text, cand_text):
+            continue
+        if core_text.should_reject_education_mismatch(target_text, cand_text):
+            continue
         if allowed_categories:
             cand_codes: Set[str] = set()
             if cand.danh_muc:
@@ -168,6 +179,12 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
                 cand_codes.update(cand.danh_mucs)
             if "vehicle" not in allowed_categories:
                 cand_codes.discard("vehicle")
+            
+            if not cand_codes:
+                inferred, _ = core_text.infer_category_label(cand_text)
+                if inferred:
+                    cand_codes.add(inferred)
+
             if not cand_codes or cand_codes.isdisjoint(allowed_categories):
                 continue
             reasons.append("category_gate")
@@ -176,23 +193,12 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             ):
                 continue
         else:
-            if core_text.should_reject_by_intent(target_text, cand_text):
-                continue
-            reasons.append("intent_gate")
+            if not is_emergency:
+                if core_text.should_reject_by_intent(target_text, cand_text):
+                    continue
+                reasons.append("intent_gate")
 
-        if core_text.should_reject_for_food_urgency(target_text, cand_text):
-            continue
-
-        if core_text.should_reject_for_vehicle_target(target_text, cand_text):
-            continue
-
-        if core_text.is_cross_domain_hard_reject(target_text, cand_text):
-            continue
-
-        if core_text.should_reject_clothes_season_mismatch(target_text, cand_text):
-            continue
-
-        if match_sim < min_sim_cut:
+        if match_sim  < min_sim_cut:
             continue
         if match_sim < rel_floor:
             continue

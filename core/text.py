@@ -41,7 +41,7 @@ def has_multi_intent_overlap(target_text: str, cand_text: str) -> bool:
     rules: List[Tuple[Set[str], Set[str]]] = [
         ({"quan ao", "quan", "ao", "do mac"}, {"ao", "quan", "mac", "chan", "am"}),
         ({"thuc pham", "do an", "gao"}, {"gao", "mi", "my tom", "do an", "thuc pham"}),
-        ({"chay nha", "mat nha", "hoa hoan"}, {"chan", "noi", "bep", "do gia dung", "vat dung sinh hoat"}),
+        
         ({"hoc phi", "sach vo", "hoc tap"}, {"sach", "vo", "tap", "laptop", "may tinh"}),
     ]
     for target_terms, cand_terms in rules:
@@ -78,7 +78,54 @@ def normalize_category_label(raw: Optional[str], fallback_text: str) -> Tuple[Op
         return value, 1.0
     return infer_category_label(fallback_text)
 
+def should_reject_food_mismatch(target_text: str, cand_text: str) -> bool:
+    food_keywords = {
+        "gao": ["gao", "gạo", "com", "cơm"],
+        "mi": ["mi", "mì", "my tom", "mì tôm"],
+        "sua": ["sua", "sữa"],
+    }
 
+    target_hits = [k for k, v in food_keywords.items() if any(x in target_text for x in v)]
+    cand_hits = [k for k, v in food_keywords.items() if any(x in cand_text for x in v)]
+
+    if target_hits and cand_hits:
+        return len(set(target_hits) & set(cand_hits)) == 0
+
+    return False
+def is_emergency_case(text: str) -> bool:
+    return any(k in text for k in ["chay nha", "mat nha", "hoa hoan"])
+    
+def should_reject_education_mismatch(target_text: str, cand_text: str) -> bool:
+    """
+    Chỉ reject khi cả hai đều có keywords giáo dục nhưng thuộc nhóm KHÁC.
+    - Nếu candidate không có keywords → không reject (để semantic + category gate xử lý)
+    - Nếu target không có keywords → không reject
+    - Chỉ reject khi rõ ràng khác nhóm (vd: target "sach/vo" nhưng candidate "laptop")
+    """
+    edu_groups = {
+        "books": ["sach", "vo"],        
+        "writing": ["but"],             
+        "tech": ["laptop", "may tinh"], 
+        "general": ["hoc tap"],         
+    }
+
+    target_hits = {}
+    for group, keywords in edu_groups.items():
+        if any(k in target_text for k in keywords):
+            target_hits[group] = True
+
+    cand_hits = {}
+    for group, keywords in edu_groups.items():
+        if any(k in cand_text for k in keywords):
+            cand_hits[group] = True
+
+    if not target_hits or not cand_hits:
+        return False
+
+    if set(target_hits.keys()) & set(cand_hits.keys()):
+        return False
+
+    return True
 def must_reject_by_rules(
     target_text: str,
     cand_text: str,
