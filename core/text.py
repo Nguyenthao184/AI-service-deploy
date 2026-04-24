@@ -41,8 +41,9 @@ def has_multi_intent_overlap(target_text: str, cand_text: str) -> bool:
     rules: List[Tuple[Set[str], Set[str]]] = [
         ({"quan ao", "quan", "ao", "do mac"}, {"ao", "quan", "mac", "chan", "am"}),
         ({"thuc pham", "do an", "gao"}, {"gao", "mi", "my tom", "do an", "thuc pham"}),
-        
         ({"hoc phi", "sach vo", "hoc tap"}, {"sach", "vo", "tap", "laptop", "may tinh"}),
+        ({"do gia dung", "noi com", "noi", "bep"}, {"do sinh hoat", "noi nieu", "quat dien", "tu lanh", "may giat"}),
+        ({"giuong", "tu quan ao", "ban ghe"}, {"noi that", "do gia dung", "do sinh hoat"}),
     ]
     for target_terms, cand_terms in rules:
         if any(term in target_text for term in target_terms) and any(term in cand_text for term in cand_terms):
@@ -80,18 +81,24 @@ def normalize_category_label(raw: Optional[str], fallback_text: str) -> Tuple[Op
 
 def should_reject_food_mismatch(target_text: str, cand_text: str) -> bool:
     food_keywords = {
-        "gao": ["gao", "gạo", "com", "cơm"],
-        "mi": ["mi", "mì", "my tom", "mì tôm"],
-        "sua": ["sua", "sữa"],
+        "gao": ["gao", "com"],
+        "mi": ["mi", "mi tom", "my tom"],
+        "sua": ["sua tuoi", "sua bot", "hop sua", "sua hop"],
     }
+    
+    def has_kw(text: str, kw: str) -> bool:
+        return re.search(rf"\b{re.escape(kw)}\b", text) is not None
 
-    target_hits = [k for k, v in food_keywords.items() if any(x in target_text for x in v)]
-    cand_hits = [k for k, v in food_keywords.items() if any(x in cand_text for x in v)]
+    target_hits = [k for k, kws in food_keywords.items() if any(has_kw(target_text, kw) for kw in kws)]
+    cand_hits = [k for k, kws in food_keywords.items() if any(has_kw(cand_text, kw) for kw in kws)]
 
-    if target_hits and cand_hits:
-        return len(set(target_hits) & set(cand_hits)) == 0
+    if not target_hits or not cand_hits:
+        return False
 
-    return False
+    if len(target_hits) == 1:
+        return target_hits[0] not in cand_hits
+
+    return len(set(target_hits) & set(cand_hits)) == 0
 def is_emergency_case(text: str) -> bool:
     return any(k in text for k in ["chay nha", "mat nha", "hoa hoan"])
     
@@ -305,7 +312,19 @@ def extract_intents(text: str) -> Set[str]:
         intents.update({"household", "clothes", "food"})
 
     groups: Dict[str, List[str]] = {
-        "education": ["hoc tap", "sach", "vo", "but", "hoc phi", "laptop", "may tinh", "giao khoa"],
+        "education": [
+            "hoc tap",
+            "sach",
+            "vo",
+            "but",
+            "hoc phi",
+            "laptop",
+            "may tinh",
+            "giao khoa",
+            "cap hoc sinh",
+            "ban hoc",
+            "ghe hoc sinh",
+        ],
         "vehicle": ["xe may", "xe dap", "xe lan", "phuong tien"],
         "food": [
             "gao",
@@ -322,7 +341,22 @@ def extract_intents(text: str) -> Set[str]:
             "can do an",
         ],
         "clothes": ["quan ao", "ao", "quan", "quan jean", "jean", "ao khoac", "giay", "dep", "chan", "man", "do mac"],
-        "household": ["noi", "bep", "noi com", "gia dung", "do sinh hoat"],
+        "household": [
+            "noi",
+            "bep",
+            "bep gas",
+            "noi com",
+            "noi nieu",
+            "gia dung",
+            "do gia dung",
+            "do sinh hoat",
+            "quat dien",
+            "tu lanh",
+            "may giat",
+            "ban ghe",
+            "giuong",
+            "tu quan ao",
+        ],
         "medical": ["thuoc", "y te", "phau thuat", "vien phi", "kham benh"],
     }
     for intent, keywords in groups.items():

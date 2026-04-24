@@ -169,6 +169,10 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             print("BLEND:", round(match_sim, 6), "SEM:", round(semantic_sim, 6), "LEX:", round(lexical_sim, 6))
         if core_text.should_reject_food_mismatch(target_text, cand_text):
             continue
+        if "food" in target_intents and len(target_intents) == 1:
+            cand_intents = core_text.extract_intents(cand_text)
+            if "food" not in cand_intents:
+                continue 
         if core_text.should_reject_education_mismatch(target_text, cand_text):
             continue
         if allowed_categories:
@@ -263,10 +267,9 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             delta_days = 0.0
         time_score = core_geo.score_time_days(delta_days)
 
-        final_score = similarity_score + location_score + interest_score + time_score + (target_urgency * 1.5)
         penalty = core_text.relevance_penalty(match_sim)
-        final_score += penalty
-        # Only penalize missing geo if user has address (is doing location-based matching)
+        final_score = similarity_score + location_score + interest_score + time_score + (target_urgency * 1.5) + penalty
+        
         if not has_geo and req.user_has_address:
             final_score -= 1.25
 
