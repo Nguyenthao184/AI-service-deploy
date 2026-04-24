@@ -39,7 +39,7 @@ def has_multi_intent_overlap(target_text: str, cand_text: str) -> bool:
     Cầu ý định theo luật cho các tình huống quyên góp thường gặp.
     """
     rules: List[Tuple[Set[str], Set[str]]] = [
-        ({"quan ao", "quan", "ao", "do mac"}, {"ao", "quan", "mac", "chan", "am"}),
+        ({"quan ao", "do mac", "ao khoac", "quan jean"}, {"ao khoac", "quan jean", "do mac", "chan", "am"}),
         ({"thuc pham", "do an", "gao"}, {"gao", "mi", "my tom", "do an", "thuc pham"}),
         ({"hoc phi", "sach vo", "hoc tap"}, {"sach", "vo", "tap", "laptop", "may tinh"}),
         ({"do gia dung", "noi com", "noi", "bep"}, {"do sinh hoat", "noi nieu", "quat dien", "tu lanh", "may giat"}),
@@ -338,7 +338,20 @@ def extract_intents(text: str) -> Set[str]:
             "can gao",
             "can do an",
         ],
-        "clothes": ["quan ao", "ao", "quan", "quan jean", "jean", "ao khoac", "giay", "dep", "chan", "man", "do mac"],
+        "clothes": [
+            "quan ao",
+            "quan jean",
+            "jean",
+            "ao khoac",
+            "ao am",
+            "ao thun",
+            "giay",
+            "dep",
+            "chan",
+            "man",
+            "do mac",
+            "vay",
+        ],
         "household": [
             "noi",
             "bep",
@@ -357,7 +370,14 @@ def extract_intents(text: str) -> Set[str]:
         ],
         "medical": ["thuoc", "y te", "phau thuat", "vien phi", "kham benh"],
     }
+    is_wardrobe_context = "tu quan ao" in text
     for intent, keywords in groups.items():
+        if intent == "clothes":
+            # Tránh lẫn "tủ quần áo" (nội thất) với "quần áo mặc".
+            if is_wardrobe_context and not any(
+                k in text for k in ["ao khoac", "ao am", "ao thun", "quan jean", "giay", "dep", "do mac", "vay"]
+            ):
+                continue
         if any(k in text for k in keywords):
             intents.add(intent)
     return intents
