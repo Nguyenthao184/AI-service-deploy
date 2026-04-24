@@ -126,7 +126,10 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         allowed_categories.update(target.danh_mucs)
 
     if not allowed_categories:
-        inferred, _ = core_text.infer_category_label(target_text)
+        inferred, score = core_text.infer_category_label(target_text)
+        if inferred and score > 0.7: 
+            allowed_categories.add(inferred)
+
         if inferred:
             allowed_categories.add(inferred)
     target_intents = core_text.extract_intents(target_text)

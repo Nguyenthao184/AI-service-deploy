@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -8,7 +9,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from core.config import SEMANTIC_MODEL_NAME
-
+import logging
+logger = logging.getLogger(__name__)
 try:
     from sentence_transformers import SentenceTransformer
 except Exception:  # pragma: no cover
@@ -23,11 +25,14 @@ def get_semantic_model() -> Optional["SentenceTransformer"]:
     - keepitreal/vietnamese-sbert
     - sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
     """
+    
     if SentenceTransformer is None:
         return None
     try:
-        return SentenceTransformer(SEMANTIC_MODEL_NAME)
-    except Exception:
+        model = SentenceTransformer(SEMANTIC_MODEL_NAME)
+        return model
+    except Exception as e:
+        logger.warning(f"Failed to load model {SEMANTIC_MODEL_NAME}: {e}")
         return None
 
 
@@ -36,8 +41,9 @@ def semantic_similarity_scores(target_text: str, other_texts: List[str]) -> np.n
     Trả về điểm tương đồng cosine giữa `target_text` và từng chuỗi trong `other_texts`.
     """
     model = get_semantic_model()
+   
     if model is None:
-        # Fallback nếu môi trường chưa cài model.
+        logger.warning("Semantic model not loaded, fallback to TF-IDF")
         texts = [target_text] + other_texts
         vectorizer = TfidfVectorizer(
             analyzer="char_wb",

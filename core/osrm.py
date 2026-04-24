@@ -14,16 +14,8 @@ def get_osrm_distance_km(
     lon1: float,
     lat2: float,
     lon2: float,
-    cache: Dict[Tuple[float, float, float, float], float],
     call_count: List[int],
 ) -> Optional[float]:
-    """
-    Lấy khoảng cách đường đi từ OSRM (km theo đường bộ).
-    Trả về None nếu gọi OSRM thất bại.
-    """
-    key = (round(lat1, 6), round(lon1, 6), round(lat2, 6), round(lon2, 6))
-    if key in cache:
-        return cache[key]
 
     if not config.OSRM_ENABLED:
         return None
@@ -33,11 +25,12 @@ def get_osrm_distance_km(
 
     try:
         call_count[0] += 1
-        distance_km = _osrm_distance_km_cached(*key)
-        if distance_km is None:
-            return None
-        cache[key] = distance_km
-        return distance_km
+        return _osrm_distance_km_cached(
+            round(lat1, 6),
+            round(lon1, 6),
+            round(lat2, 6),
+            round(lon2, 6),
+        )
     except Exception:
         return None
 

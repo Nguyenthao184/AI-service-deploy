@@ -82,23 +82,20 @@ def normalize_category_label(raw: Optional[str], fallback_text: str) -> Tuple[Op
 def should_reject_food_mismatch(target_text: str, cand_text: str) -> bool:
     food_keywords = {
         "gao": ["gao", "com"],
-        "mi": ["mi", "mi tom", "my tom"],
-        "sua": ["sua tuoi", "sua bot", "hop sua", "sua hop"],
+        "mi": ["mi", "mi tom"],
+        "sua": ["sua tuoi", "sua bot"],
     }
     
-    def has_kw(text: str, kw: str) -> bool:
-        return re.search(rf"\b{re.escape(kw)}\b", text) is not None
-
-    target_hits = [k for k, kws in food_keywords.items() if any(has_kw(target_text, kw) for kw in kws)]
-    cand_hits = [k for k, kws in food_keywords.items() if any(has_kw(cand_text, kw) for kw in kws)]
+    target_hits = [k for k, kws in food_keywords.items() 
+                   if any(f" {kw} " in f" {target_text} " for kw in kws)]
+    cand_hits = [k for k, kws in food_keywords.items() 
+                 if any(f" {kw} " in f" {cand_text} " for kw in kws)]
 
     if not target_hits or not cand_hits:
         return False
-
-    if len(target_hits) == 1:
-        return target_hits[0] not in cand_hits
-
+    
     return len(set(target_hits) & set(cand_hits)) == 0
+
 def is_emergency_case(text: str) -> bool:
     return any(k in text for k in ["chay nha", "mat nha", "hoa hoan"])
     
@@ -202,9 +199,10 @@ def _fold_vn_d(text: str) -> str:
 
 
 def _has_clothes_context(text: str) -> bool:
-    """Có tín hiệu quần áo (tránh chỉ dựa substring 'ao' quá ngắn)."""
-    if "clothes" in extract_intents(text):
+    intents = extract_intents(text)
+    if "clothes" in intents:
         return True
+
     return _contains_any(
         text,
         [
