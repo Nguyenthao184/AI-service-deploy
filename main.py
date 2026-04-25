@@ -35,9 +35,10 @@ class MatchRequest(BaseModel):
     # Cho phép 1 bài: khi không có ứng viên đối ứng trong DB, backend vẫn gọi được; endpoint trả [].
     posts: List[AiPost] = Field(min_length=1)
     # True if user has entered their address; used for location-based matching
-    user_has_address: bool = True
+    user_has_address: bool = True   
     # User interest categories (from liked posts). Used when user_has_address=False
     user_interests: Optional[List[Dict[str, Any]]] = None
+    mode: Optional[str] = "matches" # matches: tìm kiếm theo vị trí, semantic: tìm kiếm theo nội dung
 
 
 class MatchResponseItem(BaseModel):
@@ -108,6 +109,11 @@ class CampaignFraudCheckItem(BaseModel):
     risk: Literal["HIGH", "LOW"]
 
 
+"""
+🔧 FIX #2: ai_service/main.py - Full patched matches() endpoint
+Replace the entire @app.post("/matches") function with this
+"""
+
 @app.post("/matches", response_model=List[MatchResponseItem])
 def matches(req: MatchRequest) -> List[MatchResponseItem]:
     target = next((p for p in req.posts if p.id == req.post_id), None)
@@ -119,6 +125,8 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         return []
 
     target_text = core_text.normalize_semantic_text((target.tieu_de + " " + target.mo_ta).strip())
+    
+    # ✅ FIX: Build allowed_categories with infer fallback
     allowed_categories: Set[str] = set()
     if target.danh_muc:
         allowed_categories.add(target.danh_muc)
@@ -130,8 +138,6 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         if inferred and score > 0.7: 
             allowed_categories.add(inferred)
 
-        if inferred:
-            allowed_categories.add(inferred)
     target_intents = core_text.extract_intents(target_text)
     other_texts = [core_text.normalize_semantic_text((p.tieu_de + " " + p.mo_ta).strip()) for p in others]
     semantic_sims = core_similarity.semantic_similarity_scores(target_text, other_texts)
@@ -170,6 +176,7 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             print("TARGET:", target_text)
             print("CAND:", cand_text)
             print("BLEND:", round(match_sim, 6), "SEM:", round(semantic_sim, 6), "LEX:", round(lexical_sim, 6))
+        
         if core_text.should_reject_food_mismatch(target_text, cand_text):
             continue
         if "food" in target_intents and len(target_intents) == 1:
@@ -178,21 +185,26 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
                 continue 
         if core_text.should_reject_education_mismatch(target_text, cand_text):
             continue
+        if core_text.should_reject_wardrobe_clothes_mismatch(target_text, cand_text):
+            continue
         if allowed_categories:
             cand_codes: Set[str] = set()
             if cand.danh_muc:
                 cand_codes.add(cand.danh_muc)
             if cand.danh_mucs:
                 cand_codes.update(cand.danh_mucs)
-            if "vehicle" not in allowed_categories:
-                cand_codes.discard("vehicle")
             
+            # ✅ FIX #2: Infer candidate categories nếu không có
             if not cand_codes:
                 inferred, _ = core_text.infer_category_label(cand_text)
                 if inferred:
                     cand_codes.add(inferred)
+            
+            if "vehicle" not in allowed_categories:
+                cand_codes.discard("vehicle")
 
-            if not cand_codes or cand_codes.isdisjoint(allowed_categories):
+            # ✅ FIX: Change logic - only skip if có category nhưng mismatch
+            if cand_codes and cand_codes.isdisjoint(allowed_categories):
                 continue
             reasons.append("category_gate")
             if core_text.should_reject_vehicle_offer_when_vehicle_not_allowed(
@@ -205,15 +217,13 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
                     continue
                 reasons.append("intent_gate")
 
-        if match_sim  < min_sim_cut:
+        if match_sim < min_sim_cut:
             continue
         if match_sim < rel_floor:
             continue
 
         similarity_score = match_sim * 7.0
 
-        # Interest-based boost when user has no address
-        # If user interests are provided and user has no address, boost score for matching interest categories
         interest_score = 0.0
         if not req.user_has_address and req.user_interests:
             cand_categories = set()
@@ -222,17 +232,14 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             if cand.danh_mucs:
                 cand_categories.update(cand.danh_mucs)
             
-            # Calculate interest boost based on category matches
             user_interest_codes = {interest['code'] for interest in req.user_interests}
             matching_interests = cand_categories & user_interest_codes
             
             if matching_interests:
-                # Find the max weight among matching interests
                 max_weight = max(
                     (interest['weight'] for interest in req.user_interests if interest['code'] in matching_interests),
                     default=0
                 )
-                # Normalize weight to 0-3 point boost
                 interest_score = min(3.0, max_weight / 5.0)
                 reasons.append("interest_match")
         
@@ -251,13 +258,14 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
                 cand.lat,
                 cand.lng,
             )
-            if distance_km > 20.0:
-                continue
-            location_score = core_geo.score_location_km(distance_km)
+            if req.mode == "matches":
+                if distance_km > 20.0:
+                    continue    
+                location_score = core_geo.score_location_km(distance_km)
+            elif req.mode == "related":
+                location_score = 0.0
             reasons.append("geo_ok")
         else:
-            # Thiếu vị trí: vẫn cho match theo nội dung nhưng hạ ưu tiên,
-            # và UI sẽ hiển thị "không xác định vị trí" vì distance=None.
             reasons.append("geo_unknown")
 
         cand_created_at = cand.created_at
@@ -302,7 +310,6 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
     strict_rows_nogeo = [row for row in scored_rows_nogeo if row[1] >= core_config.MIN_SIM_STRICT]
 
     multi_need = len(allowed_categories) > 1
-    # Giáo dục: bài "cần laptop" và "tặng sách/vở" thường có điểm trộn ở mức lỏng, không chỉ khớp laptop chặt
     intent_loose = bool(
         {"food", "clothes", "household", "education"} & target_intents
     )
@@ -311,8 +318,6 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
     loose_floor = core_config.MIN_SIM_LOOSE
 
     if not strict_rows_geo:
-        # Không có strict có geo → ưu tiên trả các match có geo (dù loose),
-        # chỉ fill bằng match không geo nếu vẫn thiếu.
         scored_rows_geo.sort(key=lambda row: row[0].score, reverse=True)
         scored_rows_nogeo.sort(key=lambda row: row[0].score, reverse=True)
         merged = scored_rows_geo + scored_rows_nogeo
@@ -436,7 +441,118 @@ def fraud_check(req: FraudCheckRequest) -> List[FraudCheckItem]:
         )
 
     return ket_qua
+@app.post("/related", response_model=List[MatchResponseItem])
+def related(req: MatchRequest) -> List[MatchResponseItem]:
+    """
+    Related posts matching - SEMANTIC ONLY (no geo, no category gate)
+    
+    Same loai_bai (CHO↔CHO, NHAN↔NHAN)
+    Match based on content similarity
+    Return top matches by semantic score
+    """
+    target = next((p for p in req.posts if p.id == req.post_id), None)
+    if target is None:
+        raise HTTPException(status_code=400, detail="Không tìm thấy post_id trong danh sách posts.")
+ 
+    others = [p for p in req.posts if p.id != req.post_id]
+    if not others:
+        return []
+ 
+    target_text = core_text.normalize_semantic_text((target.tieu_de + " " + target.mo_ta).strip())
+    target_intents = core_text.extract_intents(target_text)
+    
+    other_texts = [core_text.normalize_semantic_text((p.tieu_de + " " + p.mo_ta).strip()) for p in others]
+    semantic_sims = core_similarity.semantic_similarity_scores(target_text, other_texts)
+    lexical_sims = core_similarity.lexical_similarity_scores(target_text, other_texts)
+ 
+    scored_rows: List[Tuple[MatchResponseItem, float]] = []
+    now = datetime.now(timezone.utc)
+    target_urgency = core_text.urgency_score(target_text)
+ 
+    w_sum = core_config.MATCH_BLEND_SEMANTIC + core_config.MATCH_BLEND_LEXICAL
+    if w_sum <= 0:
+        w_sum = 1.0
+    w_sem = core_config.MATCH_BLEND_SEMANTIC / w_sum
+    w_lex = core_config.MATCH_BLEND_LEXICAL / w_sum
+    
+    min_sim_cut = core_config.MIN_SIM_LOOSE
+    rel_floor = core_config.MIN_SIM_LOOSE
+    
+    for idx, cand in enumerate(others):
+        cand_text = other_texts[idx]
+        semantic_sim = float(semantic_sims[idx])
+        lexical_sim = float(lexical_sims[idx])
+        match_sim = max(0.0, min(1.0, w_sem * semantic_sim + w_lex * lexical_sim))
+        reasons: List[str] = []
+ 
+        if core_config.DEBUG_SEMANTIC_MATCH:
+            print("TARGET:", target_text)
+            print("CAND:", cand_text)
+            print("BLEND:", round(match_sim, 6), "SEM:", round(semantic_sim, 6), "LEX:", round(lexical_sim, 6))
 
+        if core_text.is_cross_domain_hard_reject(target_text, cand_text):
+            continue
+      
+        if core_text.should_reject_wardrobe_clothes_mismatch(target_text, cand_text):
+            continue
+
+        if core_text.should_reject_education_mismatch(target_text, cand_text):
+            continue
+
+        if core_text.should_reject_by_intent(target_text, cand_text):
+            continue
+        if match_sim < min_sim_cut:
+            continue
+        if match_sim < rel_floor:
+            continue
+ 
+        similarity_score = match_sim * 7.0
+ 
+        cand_created_at = cand.created_at
+        if cand_created_at.tzinfo is None:
+            cand_created_at = cand_created_at.replace(tzinfo=timezone.utc)
+        else:
+            cand_created_at = cand_created_at.astimezone(timezone.utc)
+        delta_days = (now - cand_created_at).total_seconds() / 86400.0
+        if delta_days < 0:
+            delta_days = 0.0
+        time_score = core_geo.score_time_days(delta_days)
+ 
+        penalty = core_text.relevance_penalty(match_sim)
+        
+        final_score = similarity_score + time_score + (target_urgency * 0.5) + penalty
+        
+        reasons.append("semantic_match")
+ 
+        match_percent = min(100.0, (match_sim * 100.0))
+        item = MatchResponseItem(
+            post_id=cand.id,
+            score=round(final_score, 6),
+            distance=None,  
+            match_percent=round(match_percent, 2),
+            reasons=reasons,
+            breakdown={
+                "semantic_sim": float(round(semantic_sim, 6)),
+                "lexical_sim": float(round(lexical_sim, 6)),
+                "match_sim": float(round(match_sim, 6)),
+                "similarity_score": float(round(similarity_score, 6)),
+                "location_score": 0.0,
+                "interest_score": 0.0,
+                "time_score": float(round(time_score, 6)),
+                "urgency": float(round(target_urgency, 6)),
+                "penalty": float(round(penalty, 6)),
+            },
+        )
+        scored_rows.append((item, match_sim))
+ 
+    scored_rows.sort(key=lambda row: row[0].score, reverse=True)
+    
+    filtered = [row for row in scored_rows if row[0].match_percent >= 50.0]
+    
+    if not filtered:
+        filtered = scored_rows
+    
+    return [row[0] for row in filtered[:10]]
 
 @app.post("/campaign-fraud-check", response_model=List[CampaignFraudCheckItem])
 def campaign_fraud_check(req: CampaignFraudCheckRequest) -> List[CampaignFraudCheckItem]:

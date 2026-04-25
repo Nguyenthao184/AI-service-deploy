@@ -19,6 +19,10 @@ def normalize_semantic_text(text: str) -> str:
     - gộp khoảng trắng
     """
     value = (text or "").strip().lower()
+    try:
+        value = value.encode('latin1').decode('utf-8')
+    except Exception:
+        pass
     value = unicodedata.normalize("NFKD", value)
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
     value = re.sub(r"[^\w\s]", " ", value, flags=re.UNICODE)
@@ -130,6 +134,18 @@ def should_reject_education_mismatch(target_text: str, cand_text: str) -> bool:
         return False
 
     return True
+def should_reject_wardrobe_clothes_mismatch(target_text: str, cand_text: str) -> bool:
+ 
+    wardrobe_keywords = ["tu quan ao"]
+    clothes_keywords = ["quan ao", "ao khoac", "do mac"]
+
+    target_is_wardrobe = any(k in target_text for k in wardrobe_keywords)
+    cand_is_clothes = any(k in cand_text for k in clothes_keywords)
+
+    target_is_clothes = any(k in target_text for k in clothes_keywords)
+    cand_is_wardrobe = any(k in cand_text for k in wardrobe_keywords)
+
+    return (target_is_wardrobe and cand_is_clothes) or (target_is_clothes and cand_is_wardrobe)
 def must_reject_by_rules(
     target_text: str,
     cand_text: str,
