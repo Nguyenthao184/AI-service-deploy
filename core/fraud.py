@@ -5,13 +5,16 @@ from typing import List, Any
 
 def build_fraud_features(user: Any) -> List[float]:
     """
-    Chuyển dữ liệu user thành vector 5 đặc trưng:
+    Chuyển dữ liệu user thành vector 8 đặc trưng:
     [
         posts_per_day,
         content_similarity,
         donation_growth,
         same_ip_accounts,
-        activity_score
+        activity_score,
+        burst_activity,
+        max_jump,
+        variance
     ]
     """
     return [
@@ -20,6 +23,9 @@ def build_fraud_features(user: Any) -> List[float]:
         float(user.donation_growth),
         float(user.same_ip_accounts),
         float(user.activity_score),
+        float(user.burst_activity),
+        float(user.max_jump),
+        float(user.variance),
     ]
 
 

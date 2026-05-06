@@ -80,6 +80,9 @@ class FraudUserInput(BaseModel):
     donation_growth: float
     same_ip_accounts: float
     activity_score: float
+    burst_activity: float = 0.0
+    max_jump: float = 0.0
+    variance: float = 0.0
 
 
 class FraudCheckRequest(BaseModel):
@@ -401,7 +404,7 @@ def semantic_matches(req: SemanticMatchRequest) -> List[SemanticMatchResponseIte
 @app.post("/fraud-check", response_model=List[FraudCheckItem])
 def fraud_check(req: FraudCheckRequest) -> List[FraudCheckItem]:
     """
-    Phát hiện gian lận bằng IsolationForest với 5 đặc trưng hành vi.
+    Phát hiện gian lận bằng IsolationForest với đặc trưng hành vi mở rộng.
     - predict = -1 → bất thường → HIGH
     - predict = 1  → bình thường → LOW
     """
@@ -423,12 +426,17 @@ def fraud_check(req: FraudCheckRequest) -> List[FraudCheckItem]:
         nguoi_dung = ds_users[chi_so]
 
         rule_high = (
-            nguoi_dung.posts_per_day >= 10
-            and nguoi_dung.same_ip_accounts >= 3
+            (
+                nguoi_dung.posts_per_day > 5
+                or nguoi_dung.burst_activity > 6
+            )
+            and nguoi_dung.same_ip_accounts > 5
             and (
-                nguoi_dung.content_similarity >= 0.85
+                nguoi_dung.content_similarity >= 0.9
                 or nguoi_dung.donation_growth >= 150
                 or nguoi_dung.activity_score >= 15
+                or nguoi_dung.max_jump >= 2500000
+                or nguoi_dung.variance >= 0.15
             )
         )
 
