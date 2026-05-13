@@ -137,11 +137,20 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         allowed_categories.update(target.danh_mucs)
 
     if not allowed_categories:
-        inferred, score = core_text.infer_category_label(target_text)
-        if inferred and score > 0.7: 
-            allowed_categories.add(inferred)
+        explicit = core_text.get_category_by_explicit_keywords(target_text)
+        if explicit:
+            allowed_categories.add(explicit)
+        else:
+            inferred, score = core_text.infer_category_label(target_text)
+            if inferred and score > 0.75: 
+                allowed_categories.add(inferred)
+
+    is_related_mode = (getattr(req, "mode", None) or "matches") == "related"
+    # Gợi ý related: không dùng cổng danh mục DB (thường quá rộng, bỏ qua intent) — chỉ dựa luật nội dung + embedding.
+    gate_categories: Set[str] = set() if is_related_mode else allowed_categories
 
     target_intents = core_text.extract_intents(target_text)
+    target_facets = core_text.extract_facets(target_text)
     other_texts = [core_text.normalize_semantic_text((p.tieu_de + " " + p.mo_ta).strip()) for p in others]
     semantic_sims = core_similarity.semantic_similarity_scores(target_text, other_texts)
     lexical_sims = core_similarity.lexical_similarity_scores(target_text, other_texts)
@@ -156,31 +165,64 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         w_sum = 1.0
     w_sem = core_config.MATCH_BLEND_SEMANTIC / w_sum
     w_lex = core_config.MATCH_BLEND_LEXICAL / w_sum
-    min_sim_cut = (
-        core_config.MATCH_MIN_SIM_WITH_CATEGORY
-        if allowed_categories
-        else core_config.MATCH_MIN_SIM_NO_CATEGORY
-    )
-    rel_floor = (
-        core_config.MATCH_RELEVANCE_FLOOR_GATED
-        if allowed_categories
-        else core_config.MIN_SIM_LOOSE
-    )
+    if is_related_mode:
+        min_sim_cut = core_config.RELATED_MIN_SIM_LOOSE
+        rel_floor = core_config.RELATED_MIN_SIM_LOOSE
+    else:
+        min_sim_cut = (
+            core_config.MATCH_MIN_SIM_WITH_CATEGORY
+            if allowed_categories
+            else core_config.MATCH_MIN_SIM_NO_CATEGORY
+        )
+        rel_floor = (
+            core_config.MATCH_RELEVANCE_FLOOR_GATED
+            if allowed_categories
+            else core_config.MIN_SIM_LOOSE
+        )
     is_emergency = core_text.is_emergency_case(target_text)
     
     for idx, cand in enumerate(others):
         cand_text = other_texts[idx]
+        cand_facets = core_text.extract_facets(cand_text)
         semantic_sim = float(semantic_sims[idx])
         lexical_sim = float(lexical_sims[idx])
         match_sim = max(0.0, min(1.0, w_sem * semantic_sim + w_lex * lexical_sim))
         reasons: List[str] = []
-
+        if core_text.should_reject_vehicle_furniture_cross(target_text, cand_text):
+           continue
+        if core_text.should_reject_education_food_cross(target_text, cand_text):
+           continue
+        if core_text.should_reject_household_food_cross(target_text, cand_text):
+           continue
         if core_config.DEBUG_SEMANTIC_MATCH:
             print("TARGET:", target_text)
             print("CAND:", cand_text)
             print("BLEND:", round(match_sim, 6), "SEM:", round(semantic_sim, 6), "LEX:", round(lexical_sim, 6))
         
+        if core_text.is_cross_domain_hard_reject(target_text, cand_text):
+            continue
+        if target_facets and cand_facets:
+            overlap = not target_facets.isdisjoint(cand_facets)
+            target_is_edu = any(f.startswith("edu") for f in target_facets)
+            cand_is_edu = any(f.startswith("edu") for f in cand_facets)
+
+            target_is_house = any(f.startswith("house") for f in target_facets)
+            cand_is_house = any(f.startswith("house") for f in cand_facets)
+
+            if (target_is_edu and cand_is_house) or (cand_is_edu and target_is_house):
+                continue
+            
+            if not overlap:
+                continue
         if core_text.should_reject_food_mismatch(target_text, cand_text):
+            continue
+        if core_text.should_reject_vehicle_vs_static_goods_cross(target_text, cand_text):
+            continue
+        if core_text.should_reject_household_facet_mismatch(target_text, cand_text):
+            continue
+        if core_text.should_reject_wearable_clothes_vs_storage_furniture(target_text, cand_text):
+            continue
+        if core_text.should_reject_study_furniture_vs_major_appliance(target_text, cand_text):
             continue
         if "food" in target_intents and len(target_intents) == 1:
             cand_intents = core_text.extract_intents(cand_text)
@@ -190,35 +232,43 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
             continue
         if core_text.should_reject_wardrobe_clothes_mismatch(target_text, cand_text):
             continue
-        if allowed_categories:
+        if gate_categories:
             cand_codes: Set[str] = set()
             if cand.danh_muc:
                 cand_codes.add(cand.danh_muc)
             if cand.danh_mucs:
                 cand_codes.update(cand.danh_mucs)
             
-            # ✅ FIX #2: Infer candidate categories nếu không có
             if not cand_codes:
-                inferred, _ = core_text.infer_category_label(cand_text)
-                if inferred:
-                    cand_codes.add(inferred)
-            
-            if "vehicle" not in allowed_categories:
+                explicit = core_text.get_category_by_explicit_keywords(cand_text)
+                if explicit:
+                    cand_codes.add(explicit)
+                else:
+                    inferred, score = core_text.infer_category_label(cand_text)
+                    if inferred:  
+                        cand_codes.add(inferred)
+            if cand_codes and cand_codes.isdisjoint(gate_categories):
+                continue
+    
+            if gate_categories and not cand_codes:
+                continue
+            reasons.append("category_gate")
+
+            if "vehicle" not in gate_categories:
                 cand_codes.discard("vehicle")
 
-            # ✅ FIX: Change logic - only skip if có category nhưng mismatch
-            if cand_codes and cand_codes.isdisjoint(allowed_categories):
+            if cand_codes and cand_codes.isdisjoint(gate_categories):
                 continue
             reasons.append("category_gate")
             if core_text.should_reject_vehicle_offer_when_vehicle_not_allowed(
-                cand_text, allowed_categories
+                cand_text, gate_categories
             ):
                 continue
-        else:
-            if not is_emergency:
-                if core_text.should_reject_by_intent(target_text, cand_text):
-                    continue
-                reasons.append("intent_gate")
+        
+        if not is_emergency:
+            if core_text.should_reject_by_intent(target_text, cand_text):
+                continue
+            reasons.append("intent_gate")
 
         if match_sim < min_sim_cut:
             continue
@@ -467,8 +517,7 @@ def related(req: MatchRequest) -> List[MatchResponseItem]:
         return []
  
     target_text = core_text.normalize_semantic_text((target.tieu_de + " " + target.mo_ta).strip())
-    target_intents = core_text.extract_intents(target_text)
-    
+    target_facets = core_text.extract_facets(target_text)
     other_texts = [core_text.normalize_semantic_text((p.tieu_de + " " + p.mo_ta).strip()) for p in others]
     semantic_sims = core_similarity.semantic_similarity_scores(target_text, other_texts)
     lexical_sims = core_similarity.lexical_similarity_scores(target_text, other_texts)
@@ -483,16 +532,22 @@ def related(req: MatchRequest) -> List[MatchResponseItem]:
     w_sem = core_config.MATCH_BLEND_SEMANTIC / w_sum
     w_lex = core_config.MATCH_BLEND_LEXICAL / w_sum
     
-    min_sim_cut = core_config.MIN_SIM_LOOSE
-    rel_floor = core_config.MIN_SIM_LOOSE
+    min_sim_cut = core_config.RELATED_MIN_SIM_LOOSE
+    rel_floor = core_config.RELATED_MIN_SIM_LOOSE
     
     for idx, cand in enumerate(others):
         cand_text = other_texts[idx]
+        cand_facets = core_text.extract_facets(cand_text)
         semantic_sim = float(semantic_sims[idx])
         lexical_sim = float(lexical_sims[idx])
         match_sim = max(0.0, min(1.0, w_sem * semantic_sim + w_lex * lexical_sim))
         reasons: List[str] = []
- 
+        if core_text.should_reject_vehicle_furniture_cross(target_text, cand_text):
+           continue
+        if core_text.should_reject_education_food_cross(target_text, cand_text):
+           continue
+        if core_text.should_reject_household_food_cross(target_text, cand_text):
+           continue
         if core_config.DEBUG_SEMANTIC_MATCH:
             print("TARGET:", target_text)
             print("CAND:", cand_text)
@@ -500,11 +555,25 @@ def related(req: MatchRequest) -> List[MatchResponseItem]:
 
         if core_text.is_cross_domain_hard_reject(target_text, cand_text):
             continue
-      
+        if target_facets and cand_facets:
+            overlap = not target_facets.isdisjoint(cand_facets)
+            if not overlap:
+                continue
         if core_text.should_reject_wardrobe_clothes_mismatch(target_text, cand_text):
             continue
 
         if core_text.should_reject_education_mismatch(target_text, cand_text):
+            continue
+
+        if core_text.should_reject_food_mismatch(target_text, cand_text):
+            continue
+        if core_text.should_reject_vehicle_vs_static_goods_cross(target_text, cand_text):
+            continue
+        if core_text.should_reject_household_facet_mismatch(target_text, cand_text):
+            continue
+        if core_text.should_reject_wearable_clothes_vs_storage_furniture(target_text, cand_text):
+            continue
+        if core_text.should_reject_study_furniture_vs_major_appliance(target_text, cand_text):
             continue
 
         if core_text.should_reject_by_intent(target_text, cand_text):
@@ -555,7 +624,7 @@ def related(req: MatchRequest) -> List[MatchResponseItem]:
  
     scored_rows.sort(key=lambda row: row[0].score, reverse=True)
     
-    filtered = [row for row in scored_rows if row[0].match_percent >= 50.0]
+    filtered = [row for row in scored_rows if row[0].match_percent >= 65.0]
     
     if not filtered:
         filtered = scored_rows
