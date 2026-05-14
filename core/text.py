@@ -110,11 +110,11 @@ def extract_facets(text: str) -> Set[str]:
     text = normalize_semantic_text(text)
     facets = set()
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "gao", "mi tom", "sua", "do an", "thuc pham"
     ]):
         facets.add("food_basic")
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "ban hoc",
         "ghe hoc sinh",
         "ghe hoc",
@@ -129,47 +129,47 @@ def extract_facets(text: str) -> Set[str]:
         "ba lo",
     ]):
         facets.add("edu_bag")
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
     "rau", "cu", "rau cu"
     ]):
         facets.add("food_vegetable")
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "sua em be", "sua tre em", "bot an dam"
     ]):
         facets.add("food_baby")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "sach", "vo", "giao khoa"
     ]):
         facets.add("edu_books")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "but", "viet", "tap"
     ]):
         facets.add("edu_writing")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "laptop", "may tinh", "tablet"
     ]):
         facets.add("edu_tech")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "noi", "bep", "tu lanh", "lo vi song"
     ]):
         facets.add("house_kitchen")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "giuong",
         "nem",
         "chan ga",
     ]):
         facets.add("house_sleep")
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "ke sach",
         "ke tivi",
     ]):
         facets.add("house_storage")
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "ban ghe",
         "ghe sofa",
         "sofa",
@@ -179,12 +179,12 @@ def extract_facets(text: str) -> Set[str]:
     ]):
         facets.add("house_table")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "tu quan ao", "tu ao", "tu do"
     ]):
         facets.add("house_storage")
 
-    if any(k in text for k in [
+    if any(f" {k} " in f" {text} " for k in [
         "quan ao", "ao khoac", "giay", "dep"
     ]):
         facets.add("clothes_wear")
@@ -206,7 +206,8 @@ def has_multi_intent_overlap(target_text: str, cand_text: str) -> bool:
     for target_terms, cand_terms, mode in rules:
         t_src = tw if mode == "wear" else target_text
         c_src = cw if mode == "wear" else cand_text
-        if any(term in t_src for term in target_terms) and any(term in c_src for term in cand_terms):
+        if any(f" {term} " in f" {t_src} " for term in target_terms) and any(f" {term} " in f" {c_src} " for term in cand_terms):
+                       
             return True
     return False
 
@@ -235,7 +236,7 @@ def should_reject_food_mismatch(target_text: str, cand_text: str) -> bool:
 
 
 def is_emergency_case(text: str) -> bool:
-    return any(k in text for k in ["chay nha", "mat nha", "hoa hoan"])
+    return any(f" {k} " in f" {text} " for k in ["chay nha", "mat nha", "hoa hoan"])
 
     
 def should_reject_education_mismatch(target_text: str, cand_text: str) -> bool:
@@ -250,9 +251,9 @@ def should_reject_education_mismatch(target_text: str, cand_text: str) -> bool:
     }
 
     target_hits = {g for g, kw in edu_groups.items() 
-                   if any(k in target_text for k in kw)}
+                  if any(f" {k} " in f" {target_text} " for k in kw)}
     cand_hits = {g for g, kw in edu_groups.items() 
-                 if any(k in cand_text for k in kw)}
+                 if any(f" {k} " in f" {cand_text} " for k in kw)}
 
     if not target_hits or not cand_hits:
         return False
@@ -322,7 +323,7 @@ def relevance_penalty(match_sim: float) -> float:
 
 
 def _contains_any(text: str, keywords: List[str]) -> bool:
-    return any(k in text for k in keywords)
+    return any(f" {k} " in f" {text} " for k in keywords)
 
 
 def _fold_vn_d(text: str) -> str:
@@ -489,7 +490,7 @@ def extract_intents(text: str) -> Set[str]:
     intents: Set[str] = set()
 
     # Ánh xạ ngữ cảnh khi khẩn cấp
-    if any(k in text for k in ["chay nha", "mat nha", "mat het", "khong con nha", "hoa hoan"]):
+    if any(f" {k} " in f" {text} " for k in ["chay nha", "mat nha", "mat het", "khong con nha", "hoa hoan"]):
         intents.update({"household", "clothes", "food"})
 
     clothes_text = _text_for_wearable_clothes_intent(text)
@@ -621,7 +622,7 @@ HOUSEHOLD_FACET_KEYWORDS: Dict[str, Tuple[str, ...]] = {
 def extract_household_facets(text: str) -> Set[str]:
     facets: Set[str] = set()
     for facet, phrases in HOUSEHOLD_FACET_KEYWORDS.items():
-        if any(ph in text for ph in phrases):
+        if any(f" {ph} " in f" {text} " for ph in phrases):
             facets.add(facet)
     if "cooling" not in facets and re.search(r"(^|\s)quat(\s|$)", text):
         facets.add("cooling")
@@ -792,11 +793,11 @@ def should_reject_vehicle_furniture_cross(target_text: str, cand_text: str) -> b
         "tu do"
     ]
 
-    target_is_vehicle = any(k in target_text for k in vehicle_keywords)
-    cand_is_vehicle = any(k in cand_text for k in vehicle_keywords)
-
-    target_is_furniture = any(k in target_text for k in furniture_keywords)
-    cand_is_furniture = any(k in cand_text for k in furniture_keywords)
+    target_is_vehicle = any(f" {k} " in f" {target_text} " for k in vehicle_keywords)
+    cand_is_vehicle = any(f" {k} " in f" {cand_text} " for k in vehicle_keywords)
+    
+    target_is_furniture = any(f" {k} " in f" {target_text} " for k in furniture_keywords)
+    cand_is_furniture = any(f" {k} " in f" {cand_text} " for k in furniture_keywords)
 
     if target_is_vehicle and cand_is_furniture and not cand_is_vehicle:
         return True
@@ -842,11 +843,11 @@ def should_reject_education_food_cross(target_text: str, cand_text: str) -> bool
         "trung"
     ]
 
-    target_is_edu = any(k in target_text for k in edu_keywords)
-    cand_is_edu = any(k in cand_text for k in edu_keywords)
+    target_is_edu = any(f" {k} " in f" {target_text} " for k in edu_keywords)
+    cand_is_edu = any(f" {k} " in f" {cand_text} " for k in edu_keywords)
 
-    target_is_food = any(k in target_text for k in food_keywords)
-    cand_is_food = any(k in cand_text for k in food_keywords)
+    target_is_food = any(f" {k} " in f" {target_text} " for k in food_keywords)
+    cand_is_food = any(f" {k} " in f" {cand_text} " for k in food_keywords)
 
     if target_is_edu and cand_is_food and not cand_is_edu:
         return True
@@ -1020,11 +1021,11 @@ def should_reject_household_food_cross(target_text: str, cand_text: str) -> bool
         "sua",
     ]
 
-    target_is_house = any(k in target_text for k in household_keywords)
-    cand_is_house = any(k in cand_text for k in household_keywords)
+    target_is_house = any(f" {k} " in f" {target_text} " for k in household_keywords)
+    cand_is_house = any(f" {k} " in f" {cand_text} " for k in household_keywords)
 
-    target_is_food = any(k in target_text for k in food_keywords)
-    cand_is_food = any(k in cand_text for k in food_keywords)
+    target_is_food = any(f" {k} " in f" {target_text} " for k in food_keywords)
+    cand_is_food = any(f" {k} " in f" {cand_text} " for k in food_keywords)
 
     if target_is_house and cand_is_food and not cand_is_house:
         return True
