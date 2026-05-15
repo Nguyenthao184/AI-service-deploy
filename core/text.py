@@ -498,7 +498,7 @@ def extract_intents(text: str) -> Set[str]:
     groups: Dict[str, List[str]] = {
         "education": [
             "hoc tap", "sach", "vo", "but", "hoc phi", "laptop", "may tinh",
-            "giao khoa", "cap hoc sinh", "ban hoc", "ghe hoc sinh",
+            "giao khoa", "cap hoc sinh", "ban hoc sinh","ban hoc tap", "ghe hoc sinh",
         ],
         "vehicle": ["xe may", "xe dap", "xe lan", "phuong tien", "o to", "oto", "xe tay ga"],
         "food": [
@@ -868,7 +868,39 @@ def _has_study_area_furniture_signal(text: str) -> bool:
             "ban hoc sinh",
         ],
     )
+def should_reject_household_vs_education_furniture(
+    target_text: str,
+    cand_text: str,
+) -> bool:
 
+    study_keywords = [
+        "ban hoc",
+        "ban hoc sinh",
+        "ban hoc tap",
+        "ghe hoc sinh",
+    ]
+
+    furniture_keywords = [
+        "ban ghe",
+        "bo ban ghe",
+        "ghe sofa",
+        "sofa",
+        "ban an",
+    ]
+
+    target_is_study = any(f" {k} " in f" {target_text} " for k in study_keywords)
+    cand_is_study = any(f" {k} " in f" {cand_text} " for k in study_keywords)
+
+    target_is_furniture = any(f" {k} " in f" {target_text} " for k in furniture_keywords)
+    cand_is_furniture = any(f" {k} " in f" {cand_text} " for k in furniture_keywords)
+
+    if target_is_study and cand_is_furniture and not cand_is_study:
+        return True
+
+    if target_is_furniture and cand_is_study and not cand_is_furniture:
+        return True
+
+    return False
 
 def _has_major_appliance_signal(text: str) -> bool:
     facets = extract_household_facets(text)

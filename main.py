@@ -190,10 +190,14 @@ def matches(req: MatchRequest) -> List[MatchResponseItem]:
         reasons: List[str] = []
         if core_text.should_reject_vehicle_furniture_cross(target_text, cand_text):
            continue
+        if core_text.should_reject_household_vs_education_furniture(target_text, cand_text):
+           continue
         if core_text.should_reject_education_food_cross(target_text, cand_text):
            continue
         if core_text.should_reject_household_food_cross(target_text, cand_text):
            continue
+        if core_text.should_reject_household_vs_education_furniture(target_text, cand_text):
+           continue 
         if core_config.DEBUG_SEMANTIC_MATCH:
             print("TARGET:", target_text)
             print("CAND:", cand_text)
@@ -544,6 +548,8 @@ def related(req: MatchRequest) -> List[MatchResponseItem]:
         reasons: List[str] = []
         if core_text.should_reject_vehicle_furniture_cross(target_text, cand_text):
            continue
+        if core_text.should_reject_household_vs_education_furniture(target_text, cand_text):
+            continue
         if core_text.should_reject_education_food_cross(target_text, cand_text):
            continue
         if core_text.should_reject_household_food_cross(target_text, cand_text):
